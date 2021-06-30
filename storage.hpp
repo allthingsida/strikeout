@@ -7,7 +7,6 @@
 class eanodes_t
 {
     easet_t eas; // Cached copy of inverted if-statement addresses
-    netnode node;
     qstring nodename;
     bool use_relative;
 
@@ -15,9 +14,18 @@ public:
     eanodes_t(const char *nodename, bool use_relative=true): nodename(nodename), use_relative(use_relative) { load(); }
     const easet_t& nodes() { return eas; }
 
+    void dump(const char* banner = nullptr)
+    {
+        if (banner)
+            msg("%s\n", banner);
+        for (auto ea : eas)
+            msg("  %a...\n", ea);
+    }
+
     bool load()
     {
         eas.clear();
+        netnode node;
         if (node.create(nodename.c_str())) // create failed -> exists already
             return false;
 
@@ -44,6 +52,9 @@ public:
 
     void save()
     {
+        netnode node;
+        node.create(nodename.c_str());
+
         ea_t image_base = 0;
         if (use_relative)
         {
@@ -82,4 +93,3 @@ public:
     bool contains(ea_t ea) const { return eas.find(ea) != eas.end(); }
     bool empty() const { return eas.empty(); }
 };
-

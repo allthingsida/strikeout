@@ -97,46 +97,27 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         marked.load();
 
         cinsnptrvec_t marked_insn;
+        hexrays_collect_cinsn_from_ea helper(cfunc, &marked, &marked_insn);
 
-        // Walk the tree just to get citem_t* from actual saved EAs
-        struct ctreeinfo_t : public ctree_visitor_t
-        {
-            strikeout_plg_t* self = nullptr;
-            cinsnptrvec_t* marked_insn = nullptr;
-
-            ctreeinfo_t(strikeout_plg_t* self, cinsnptrvec_t* marked_insn) :
-                self(self), marked_insn(marked_insn), ctree_visitor_t(CV_FAST) { }
-
-            int idaapi visit_insn(cinsn_t* ins) override
-            {
-                if (self->marked.contains(ins->ea))
-                    marked_insn->push_back(ins);
-                return 0;
-            }
-        } ti(this, &marked_insn);
-
-        ti.apply_to(&cfunc->body, nullptr);
+        hexrays_keep_lca_cinsns(cfunc, &helper, marked_insn);
 
         for (auto stmt_item : marked_insn)
         {
-            if (stmt_item->op == cit_block)
-                continue;
-
             cblock_t* cblock;
             cblock_t::iterator pos;
-            if (hexrays_get_stmt_block_pos(cfunc, stmt_item, &cblock, &pos))
+            if (hexrays_get_stmt_block_pos(cfunc, stmt_item, &cblock, &pos, &helper))
                 cblock->erase(pos);
         }
         cfunc->remove_unused_labels();
     }
 
-    ea_t do_del_stmt(vdui_t& vu)
+    ea_t do_del_stmt(vdui_t& vu, bool use_helper=true)
     {
         auto cfunc = vu.cfunc;
         auto item = vu.item.i;
 
-        citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item);
-
+        hexrays_ctreeparent_visitor_t* helper = nullptr;
+        const citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item, use_helper ? &helper : nullptr);
         if (stmt_item == nullptr)
             return BADADDR;
 
@@ -144,22 +125,25 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
         cblock_t* cblock;
         cblock_t::iterator pos;
-
-        if (hexrays_get_stmt_block_pos(cfunc, stmt_item, &cblock, &pos))
+        if (hexrays_get_stmt_block_pos(cfunc, stmt_item, &cblock, &pos, use_helper ? helper : nullptr))
         {
             cblock->erase(pos);
             cfunc->remove_unused_labels();
         }
 
+        if (helper != nullptr)
+            delete helper;
+
         return stmt_ea;
     }
 
-    ea_t do_patch_stmt(vdui_t& vu)
+    ea_t do_patch_stmt(vdui_t& vu, bool fast=false)
     {
         auto cfunc = vu.cfunc;
-        auto item = vu.item.i;
+        auto item = vu.item.it;
 
-        citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item);
+        hexrays_ctreeparent_visitor_t* helper = nullptr;
+        const citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item, fast ? &helper : nullptr);
 
         if (stmt_item == nullptr)
             return BADADDR;
@@ -169,10 +153,9 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             memset(noops, 0x90, sizeof(noops));
 
         // Walk the tree just to get citem_t* from actual saved EAs
-        using ea_size_t = std::map<ea_t, int>;
         struct collect_eas_t : public ctree_visitor_t
         {
-            ea_size_t eas;
+            std::map<ea_t, int> eas;
 
             collect_eas_t() : ctree_visitor_t(CV_PARENTS) { }
 
@@ -202,7 +185,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             }
         } ti;
 
-        ti.apply_to(stmt_item, nullptr);
+        ti.apply_to((citem_t*)stmt_item, nullptr);
         for (auto& kv : ti.eas)//=eas.begin(); p != eas.end(); ++p)
         {
             if (kv.second == 0)
@@ -314,11 +297,9 @@ int idaapi patchcode_ah_t::activate(action_activation_ctx_t* ctx)
     if (ea1 == BADADDR)
         return 0;
 
+    msg("patched selection: %a .. %a\n", ea1, ea2);
     for (; ea1 < ea2; ++ea1)
-    {
-        msg("selection: %a .. %a\n", ea1, ea2);
         patch_byte(ea1, 0x90);
-    }
 
     return 1;
 }

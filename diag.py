@@ -9,6 +9,11 @@ class hidestmt_t:
     def load(self):
         return self.parse_blob(self.n.getblob(0, 'I') or [])
 
+
+    def kill(self):
+        self.n.kill()
+
+
     def parse_blob(self, blob):
         addresses = []
         for i, offs in enumerate(range(0, len(blob), self.ptr_size)):
@@ -42,9 +47,9 @@ def compare_blobs(b1, b2):
 
 def main():
     idaapi.msg_clear()
-
-    n = hidestmt_t()
-    addresses = n.load()
+    global diag
+    diag = hidestmt_t()
+    addresses = diag.load()
 
     for ea in addresses:
         print(f"{ea:x} ...")
