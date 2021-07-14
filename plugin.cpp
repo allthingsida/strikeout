@@ -10,9 +10,6 @@ When StrikeOut is active, you will see context menu items in the decompiler wind
 #include "storage.hpp"
 #include "utils.hpp"
 
-#include <idax/xpro.hpp>
-#include <idax/xkernwin.hpp>
-
 static ssize_t idaapi hr_callback(
     void* ud, 
     hexrays_event_t event, 

@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <algorithm>
+#include <map>
 
 //----------------------------------------------------------------------------------
 class hexrays_ctreeparent_visitor_t : public ctree_parentee_t
@@ -34,7 +35,7 @@ public:
         return p == std::end(ea2item) ? nullptr : p->second;
     }
 
-    bool is_acenstor_of(const citem_t* parent, const citem_t* item)
+    bool is_ancestor_of(const citem_t* parent, const citem_t* item)
     {
         while (item != nullptr)
         {
@@ -168,7 +169,7 @@ bool hexrays_are_acenstor_of(
 {
     for (auto parent : inst)
     {
-        if (h->is_acenstor_of(parent, item))
+        if (h->is_ancestor_of(parent, item))
             return true;
     }
     return false;
