@@ -13,9 +13,6 @@ When StrikeOut is active, you will see context menu items in the decompiler wind
 #include <idax/xpro.hpp>
 #include <idax/xkernwin.hpp>
 
-DECL_ACTION(reset_delstmts);
-DECL_ACTION(patchcode);
-
 static ssize_t idaapi hr_callback(
     void* ud, 
     hexrays_event_t event, 
@@ -25,14 +22,10 @@ static ssize_t idaapi hr_callback(
 struct strikeout_plg_t : public plugmod_t, event_listener_t
 {
     action_manager_t    am;
-    reset_delstmts_ah_t reset_delstmts_ah;
-    patchcode_ah_t      patchcode_ah;
 
     eanodes_t marked;
 
-    strikeout_plg_t() : am(this),
-        reset_delstmts_ah(this), patchcode_ah(this),
-        marked(STORE_NODE_NAME)
+    strikeout_plg_t() : am(this), marked(STORE_NODE_NAME)
     {
         install_hexrays_callback(hr_callback, this);
 
@@ -72,6 +65,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             )
         );
 
+        // Patch a statement by NOPing all its instructions
         am.add_action(
             AMAHF_HXE_POPUP,
             ACTION_NAME_PATCHSTMT,
@@ -84,29 +78,35 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             )
         );
 
-        struct action_item_t
-        {
-            base_ah_t* act;
-            const char* name;
-            const char* hotkey;
-            const char* desc;
-        } actions[] = {
-            {&reset_delstmts_ah, ACTION_NAME_DELSTMTS,  "",               "StrikeOut: Reset all deleted statements"},
-            {&patchcode_ah,      ACTION_NAME_PATCHCODE, "Ctrl-Shift-Del", "StrikeOut: Patch disassembly code"},
-            { }
-        };
+        // Reset all deleted statements
+        am.add_action(
+            AMAHF_HXE_POPUP,
+            ACTION_NAME_DELSTMTS,
+            "StrikeOut: Reset all deleted statements",
+            "", FO_ACTION_UPDATE([],
+                auto vu = get_widget_vdui(widget);
+                return vu == nullptr ? AST_DISABLE_FOR_WIDGET : AST_ENABLE;
+            ), FO_ACTION_ACTIVATE([this],
+                vdui_t &vu = *get_widget_vdui(ctx->widget);
+                this->do_reset_stmts(vu);
+                vu.refresh_ctext();
+                return 1;
+            )
+        );
 
-        for (auto& act : actions)
-        {
-            register_action(ACTION_DESC_LITERAL_PLUGMOD(
-                act.name,
-                act.desc,
-                act.act,
-                this,
-                act.hotkey,
-                NULL,
-                -1));
-        }
+
+        // Patch code
+        am.add_action(
+            AMAHF_IDA_POPUP,
+            ACTION_NAME_PATCHCODE,
+            "StrikeOut: Patch disassembly code",
+            "Ctrl-Shift-Del",
+            FO_ACTION_UPDATE([],
+                return get_widget_type(widget) == BWN_DISASM ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
+            ), FO_ACTION_ACTIVATE([this],
+                return this->do_patch_code(ctx->widget);
+            )
+        );
 
         hook_event_listener(HT_UI, this);
     }
@@ -138,6 +138,20 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
                 cblock->erase(pos);
         }
         cfunc->remove_unused_labels();
+    }
+
+    int do_patch_code(TWidget* widget)
+    {
+        ea_t ea2;
+        ea_t ea1 = get_selection_range(widget, &ea2, BWN_DISASM);
+        if (ea1 == BADADDR)
+            return 0;
+
+        msg("patched selection: %a .. %a\n", ea1, ea2);
+        for (; ea1 < ea2; ++ea1)
+            patch_byte(ea1, 0x90);
+
+        return 1;
     }
 
     ea_t do_del_stmt(vdui_t& vu, bool use_helper=true)
@@ -241,20 +255,8 @@ static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
     switch (event)
     {
         case hxe_populating_popup:
-        {
-            TWidget* widget = va_arg(va, TWidget*);
-            TPopupMenu* popup = va_arg(va, TPopupMenu*);
-            vdui_t* vu = va_arg(va, vdui_t*);
-            //;!
-            //if (is_action_enabled(delstmt_ah_t::get_state(widget)))
-            //    attach_action_to_popup(widget, popup, ACTION_NAME_DELSTMT);
-            //if (is_action_enabled(patchstmt_ah_t::get_state(widget)))
-            //    attach_action_to_popup(widget, popup, ACTION_NAME_PATCHSTMT);
-            if (is_action_enabled(reset_delstmts_ah_t::get_state(widget)))
-                attach_action_to_popup(widget, popup, ACTION_NAME_DELSTMTS);
-
+            plugmod->am.on_hxe_populating_popup(va);
             break;
-        }
 
         case hxe_maturity:
         {
@@ -268,45 +270,6 @@ static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
         }
     }
     return 0;
-}
-
-//-------------------------------------------------------------------------
-//                            Action handlers
-//-------------------------------------------------------------------------
-action_state_t reset_delstmts_ah_t::get_state(TWidget* widget)
-{
-    auto vu = get_widget_vdui(widget);
-    return vu == nullptr ? AST_DISABLE_FOR_WIDGET : AST_ENABLE;
-}
-
-action_state_t patchcode_ah_t::get_state(TWidget *widget)
-{
-    return get_widget_type(widget) == BWN_DISASM ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
-}
-
-// Reset all deleted statements
-int idaapi reset_delstmts_ah_t::activate(action_activation_ctx_t* ctx)
-{
-    vdui_t& vu = *get_widget_vdui(ctx->widget);
-    plugmod->do_reset_stmts(vu);
-    vu.refresh_ctext();
-
-    return 1;
-}
-
-// Patch code
-int idaapi patchcode_ah_t::activate(action_activation_ctx_t* ctx)
-{
-    ea_t ea2;
-    ea_t ea1 = get_selection_range(ctx->widget, &ea2, BWN_DISASM);
-    if (ea1 == BADADDR)
-        return 0;
-
-    msg("patched selection: %a .. %a\n", ea1, ea2);
-    for (; ea1 < ea2; ++ea1)
-        patch_byte(ea1, 0x90);
-
-    return 1;
 }
 
 //--------------------------------------------------------------------------
