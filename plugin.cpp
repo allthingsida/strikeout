@@ -45,7 +45,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         {
             TWidget* widget = va_arg(va, TWidget*);
             TPopupMenu* popup_handle = va_arg(va, TPopupMenu*);
-            if (patchcode_ah_t::get_state(widget) <= AST_ENABLE)
+            if (is_action_enabled(patchcode_ah_t::get_state(widget)))
                 attach_action_to_popup(widget, popup_handle, ACTION_NAME_PATCHCODE);
         }
         return 0;
@@ -216,11 +216,11 @@ static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
             TWidget* widget = va_arg(va, TWidget*);
             TPopupMenu* popup = va_arg(va, TPopupMenu*);
             vdui_t* vu = va_arg(va, vdui_t*);
-            if (delstmt_ah_t::get_state(widget) <= AST_ENABLE)
+            if (is_action_enabled(delstmt_ah_t::get_state(widget)))
                 attach_action_to_popup(widget, popup, ACTION_NAME_DELSTMT);
-            if (patchstmt_ah_t::get_state(widget) <= AST_ENABLE)
+            if (is_action_enabled(patchstmt_ah_t::get_state(widget)))
                 attach_action_to_popup(widget, popup, ACTION_NAME_PATCHSTMT);
-            if (reset_delstmts_ah_t::get_state(widget) <= AST_ENABLE)
+            if (is_action_enabled(reset_delstmts_ah_t::get_state(widget)))
                 attach_action_to_popup(widget, popup, ACTION_NAME_DELSTMTS);
 
             break;
