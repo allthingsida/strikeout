@@ -8,6 +8,7 @@ class hexrays_ctreeparent_visitor_t : public ctree_parentee_t
 {
 private:
     std::map<const citem_t*, const citem_t*> parent;
+
 public:
     int idaapi visit_expr(cexpr_t* e) override
     {
@@ -56,8 +57,10 @@ ea_t get_selection_range(
 
             if (ea1 == BADADDR)
                 break;
-            insn_t inst;
-            ea2 = (decode_insn(&inst, ea1) == 0) ? ea1 + 1 : ea1 + inst.size;
+
+            ea2 = next_head(ea1, BADADDR);
+            if (ea2 == BADADDR)
+                ea2 = ea1 + 1;
         }
     } while (false);
     if (end_ea != nullptr)

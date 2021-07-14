@@ -10,7 +10,9 @@ When StrikeOut is active, you will see context menu items in the decompiler wind
 #include "storage.hpp"
 #include "utils.hpp"
 
-DECL_ACTION(delstmt);
+#include <idax/xpro.hpp>
+#include <idax/xkernwin.hpp>
+
 DECL_ACTION(patchstmt);
 DECL_ACTION(reset_delstmts);
 DECL_ACTION(patchcode);
@@ -23,15 +25,15 @@ static ssize_t idaapi hr_callback(
 //-------------------------------------------------------------------------
 struct strikeout_plg_t : public plugmod_t, event_listener_t
 {
-    delstmt_ah_t        delstmt_ah;
+    action_manager_t    am;
     reset_delstmts_ah_t reset_delstmts_ah;
     patchstmt_ah_t      patchstmt_ah;
     patchcode_ah_t      patchcode_ah;
 
     eanodes_t marked;
 
-    strikeout_plg_t() :
-        patchstmt_ah(this), delstmt_ah(this), reset_delstmts_ah(this), patchcode_ah(this),
+    strikeout_plg_t() : am(this),
+        patchstmt_ah(this), reset_delstmts_ah(this), patchcode_ah(this),
         marked(STORE_NODE_NAME)
     {
         install_hexrays_callback(hr_callback, this);
@@ -42,17 +44,36 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
     ssize_t idaapi on_event(ssize_t code, va_list va) override
     {
         if (code == ui_finish_populating_widget_popup)
-        {
-            TWidget* widget = va_arg(va, TWidget*);
-            TPopupMenu* popup_handle = va_arg(va, TPopupMenu*);
-            if (is_action_enabled(patchcode_ah_t::get_state(widget)))
-                attach_action_to_popup(widget, popup_handle, ACTION_NAME_PATCHCODE);
-        }
+            am.on_ui_finish_populating_widget_popup(va);
+
         return 0;
     }
 
     void setup_actions()
     {
+        auto del_stmt_action = FO_ACTION_UPDATE([],
+            auto vu = get_widget_vdui(widget);
+            return    (vu == nullptr) ? AST_DISABLE_FOR_WIDGET
+            : vu->item.citype != VDI_EXPR ? AST_DISABLE : AST_ENABLE;
+        );
+
+        am.add_action(
+            AMAHF_HXE_POPUP,
+            ACTION_NAME_DELSTMT,
+            "StrikeOut: Delete statement",
+            "Del",     
+            del_stmt_action,
+            FO_ACTION_ACTIVATE([this],
+                vdui_t &vu   = *get_widget_vdui(ctx->widget);
+                ea_t stmt_ea = this->do_del_stmt(vu);
+                if (stmt_ea != BADADDR)
+                    this->marked.add(stmt_ea);
+
+                vu.refresh_ctext();
+                return 1;
+            )
+        );
+
         struct action_item_t
         {
             base_ah_t* act;
@@ -60,7 +81,6 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             const char* hotkey;
             const char* desc;
         } actions[] = {
-            {&delstmt_ah,        ACTION_NAME_DELSTMT,   "Del",            "StrikeOut: Delete statement"},
             {&patchstmt_ah,      ACTION_NAME_PATCHSTMT, "Ctrl-Shift-Del", "StrikeOut: Patch statement"},
             {&reset_delstmts_ah, ACTION_NAME_DELSTMTS,  "",               "StrikeOut: Reset all deleted statements"},
             {&patchcode_ah,      ACTION_NAME_PATCHCODE, "Ctrl-Shift-Del", "StrikeOut: Patch disassembly code"},
@@ -216,8 +236,9 @@ static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
             TWidget* widget = va_arg(va, TWidget*);
             TPopupMenu* popup = va_arg(va, TPopupMenu*);
             vdui_t* vu = va_arg(va, vdui_t*);
-            if (is_action_enabled(delstmt_ah_t::get_state(widget)))
-                attach_action_to_popup(widget, popup, ACTION_NAME_DELSTMT);
+            //;!
+            //if (is_action_enabled(delstmt_ah_t::get_state(widget)))
+            //    attach_action_to_popup(widget, popup, ACTION_NAME_DELSTMT);
             if (is_action_enabled(patchstmt_ah_t::get_state(widget)))
                 attach_action_to_popup(widget, popup, ACTION_NAME_PATCHSTMT);
             if (is_action_enabled(reset_delstmts_ah_t::get_state(widget)))
@@ -243,16 +264,11 @@ static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
 //-------------------------------------------------------------------------
 //                            Action handlers
 //-------------------------------------------------------------------------
-action_state_t delstmt_ah_t::get_state(TWidget *widget)
-{
-    auto vu = get_widget_vdui(widget);
-    return (vu == nullptr) ? AST_DISABLE_FOR_WIDGET
-                           : vu->item.citype != VDI_EXPR ? AST_DISABLE : AST_ENABLE;
-}
-
 action_state_t patchstmt_ah_t::get_state(TWidget* widget)
 {
-    return delstmt_ah_t::get_state(widget);
+    //;!
+    return AST_ENABLE_ALWAYS;
+    //return delstmt_ah_t::get_state(widget);
 }
 
 action_state_t reset_delstmts_ah_t::get_state(TWidget* widget)
@@ -264,19 +280,6 @@ action_state_t reset_delstmts_ah_t::get_state(TWidget* widget)
 action_state_t patchcode_ah_t::get_state(TWidget *widget)
 {
     return get_widget_type(widget) == BWN_DISASM ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
-}
-
-// Delete a Ctree statement
-int idaapi delstmt_ah_t::activate(action_activation_ctx_t* ctx)
-{
-    vdui_t& vu = *get_widget_vdui(ctx->widget);
-
-    ea_t stmt_ea = plugmod->do_del_stmt(vu);
-    if (stmt_ea != BADADDR)
-        plugmod->marked.add(stmt_ea);
-
-    vu.refresh_ctext();
-    return 1;
 }
 
 // Reset all deleted statements
