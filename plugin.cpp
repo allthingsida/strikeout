@@ -13,7 +13,6 @@ When StrikeOut is active, you will see context menu items in the decompiler wind
 #include <idax/xpro.hpp>
 #include <idax/xkernwin.hpp>
 
-DECL_ACTION(patchstmt);
 DECL_ACTION(reset_delstmts);
 DECL_ACTION(patchcode);
 
@@ -27,13 +26,12 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 {
     action_manager_t    am;
     reset_delstmts_ah_t reset_delstmts_ah;
-    patchstmt_ah_t      patchstmt_ah;
     patchcode_ah_t      patchcode_ah;
 
     eanodes_t marked;
 
     strikeout_plg_t() : am(this),
-        patchstmt_ah(this), reset_delstmts_ah(this), patchcode_ah(this),
+        reset_delstmts_ah(this), patchcode_ah(this),
         marked(STORE_NODE_NAME)
     {
         install_hexrays_callback(hr_callback, this);
@@ -51,10 +49,10 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
     void setup_actions()
     {
-        auto del_stmt_action = FO_ACTION_UPDATE([],
+        auto enable_for_expr_upd = FO_ACTION_UPDATE([],
             auto vu = get_widget_vdui(widget);
-            return    (vu == nullptr) ? AST_DISABLE_FOR_WIDGET
-            : vu->item.citype != VDI_EXPR ? AST_DISABLE : AST_ENABLE;
+            return (vu == nullptr) ? AST_DISABLE_FOR_WIDGET
+                                   : vu->item.citype != VDI_EXPR ? AST_DISABLE : AST_ENABLE;
         );
 
         am.add_action(
@@ -62,7 +60,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DELSTMT,
             "StrikeOut: Delete statement",
             "Del",     
-            del_stmt_action,
+            enable_for_expr_upd,
             FO_ACTION_ACTIVATE([this],
                 vdui_t &vu   = *get_widget_vdui(ctx->widget);
                 ea_t stmt_ea = this->do_del_stmt(vu);
@@ -74,6 +72,18 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             )
         );
 
+        am.add_action(
+            AMAHF_HXE_POPUP,
+            ACTION_NAME_PATCHSTMT,
+            "StrikeOut: Patch statement",
+            "Ctrl-Shift-Del",
+            enable_for_expr_upd,
+            FO_ACTION_ACTIVATE([this],
+                ea_t stmt_ea = this->do_patch_stmt(*get_widget_vdui(ctx->widget));
+                return 0;
+            )
+        );
+
         struct action_item_t
         {
             base_ah_t* act;
@@ -81,7 +91,6 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             const char* hotkey;
             const char* desc;
         } actions[] = {
-            {&patchstmt_ah,      ACTION_NAME_PATCHSTMT, "Ctrl-Shift-Del", "StrikeOut: Patch statement"},
             {&reset_delstmts_ah, ACTION_NAME_DELSTMTS,  "",               "StrikeOut: Reset all deleted statements"},
             {&patchcode_ah,      ACTION_NAME_PATCHCODE, "Ctrl-Shift-Del", "StrikeOut: Patch disassembly code"},
             { }
@@ -239,8 +248,8 @@ static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
             //;!
             //if (is_action_enabled(delstmt_ah_t::get_state(widget)))
             //    attach_action_to_popup(widget, popup, ACTION_NAME_DELSTMT);
-            if (is_action_enabled(patchstmt_ah_t::get_state(widget)))
-                attach_action_to_popup(widget, popup, ACTION_NAME_PATCHSTMT);
+            //if (is_action_enabled(patchstmt_ah_t::get_state(widget)))
+            //    attach_action_to_popup(widget, popup, ACTION_NAME_PATCHSTMT);
             if (is_action_enabled(reset_delstmts_ah_t::get_state(widget)))
                 attach_action_to_popup(widget, popup, ACTION_NAME_DELSTMTS);
 
@@ -264,13 +273,6 @@ static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
 //-------------------------------------------------------------------------
 //                            Action handlers
 //-------------------------------------------------------------------------
-action_state_t patchstmt_ah_t::get_state(TWidget* widget)
-{
-    //;!
-    return AST_ENABLE_ALWAYS;
-    //return delstmt_ah_t::get_state(widget);
-}
-
 action_state_t reset_delstmts_ah_t::get_state(TWidget* widget)
 {
     auto vu = get_widget_vdui(widget);
@@ -304,14 +306,6 @@ int idaapi patchcode_ah_t::activate(action_activation_ctx_t* ctx)
     for (; ea1 < ea2; ++ea1)
         patch_byte(ea1, 0x90);
 
-    return 1;
-}
-
-// Patch selected statement and its children
-int idaapi patchstmt_ah_t::activate(action_activation_ctx_t* ctx)
-{
-    vdui_t& vu = *get_widget_vdui(ctx->widget);
-    ea_t stmt_ea = plugmod->do_patch_stmt(vu);
     return 1;
 }
 
