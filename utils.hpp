@@ -8,11 +8,12 @@ class hexrays_ctreeparent_visitor_t : public ctree_parentee_t
 {
 private:
     std::map<const citem_t*, const citem_t*> parent;
+    std::map<const ea_t, const citem_t*> ea2item;
 
 public:
     int idaapi visit_expr(cexpr_t* e) override
     {
-        parent[e] = parent_expr();
+        ea2item[e->ea] = parent[e] = parent_expr();
         return 0;
     }
 
@@ -25,6 +26,12 @@ public:
     const citem_t* parent_of(const citem_t* item)
     {
         return parent[item];
+    }
+
+    const citem_t* by_ea(ea_t ea) const
+    {
+        auto p = ea2item.find(ea);
+        return p == std::end(ea2item) ? nullptr : p->second;
     }
 
     bool is_acenstor_of(const citem_t* parent, const citem_t* item)
@@ -84,6 +91,7 @@ inline const cinsn_t* hexrays_get_stmt_insn(
 
     if (ohelper != nullptr)
     {
+        // Start a new helper
         if (*ohelper == nullptr)
         {
             helper = new hexrays_ctreeparent_visitor_t();

@@ -22,8 +22,8 @@ static ssize_t idaapi hr_callback(
 struct strikeout_plg_t : public plugmod_t, event_listener_t
 {
     action_manager_t    am;
-
-    eanodes_t marked;
+    eanodes_t           marked;
+    eavec_t             patchstmt_queue;
 
     strikeout_plg_t() : am(this), marked(STORE_NODE_NAME)
     {
@@ -42,10 +42,15 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
     void setup_actions()
     {
-        auto enable_for_expr_upd = FO_ACTION_UPDATE([],
+        auto enable_for_expr = FO_ACTION_UPDATE([],
             auto vu = get_widget_vdui(widget);
             return (vu == nullptr) ? AST_DISABLE_FOR_WIDGET
                                    : vu->item.citype != VDI_EXPR ? AST_DISABLE : AST_ENABLE;
+        );
+
+        auto enable_for_vd = FO_ACTION_UPDATE([],
+            auto vu = get_widget_vdui(widget);
+            return vu == nullptr ? AST_DISABLE_FOR_WIDGET : AST_ENABLE;
         );
 
         am.add_action(
@@ -53,8 +58,8 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DELSTMT,
             "StrikeOut: Delete statement",
             "Del",     
-            enable_for_expr_upd,
-            FO_ACTION_ACTIVATE([this],
+            enable_for_expr,
+            FO_ACTION_ACTIVATE([this]) {
                 vdui_t &vu   = *get_widget_vdui(ctx->widget);
                 ea_t stmt_ea = this->do_del_stmt(vu);
                 if (stmt_ea != BADADDR)
@@ -62,20 +67,48 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
                 vu.refresh_ctext();
                 return 1;
-            )
+            }
         );
 
         // Patch a statement by NOPing all its instructions
         am.add_action(
             AMAHF_HXE_POPUP,
             ACTION_NAME_PATCHSTMT,
-            "StrikeOut: Patch statement",
+            "StrikeOut: Patch statement (queue)",
             "Ctrl-Shift-Del",
-            enable_for_expr_upd,
-            FO_ACTION_ACTIVATE([this],
-                ea_t stmt_ea = this->do_patch_stmt(*get_widget_vdui(ctx->widget));
+            enable_for_expr,
+            FO_ACTION_ACTIVATE([this]) {
+                vdui_t& vu = *get_widget_vdui(ctx->widget);
+                ea_t stmt_ea = this->do_patch_stmt(vu);
                 return 0;
-            )
+            }
+        );
+
+        // Flush the statement patcher
+        am.add_action(
+            AMAHF_HXE_POPUP,
+            ACTION_NAME_PATCHSTMT_FLUSH,
+            "StrikeOut: Patch statement (flush)",
+            "Alt-Shift-Del",
+            enable_for_vd, 
+            FO_ACTION_ACTIVATE([this]) {
+                vdui_t& vu = *get_widget_vdui(ctx->widget);
+                this->do_flush_patch_stmt(vu);
+                return 0;
+            }
+        );
+
+        // Clear the queue patch statements
+        am.add_action(
+            AMAHF_HXE_POPUP | AMAHF_IDA_POPUP,
+            ACTION_NAME_PATCHSTMT_CLEAR,
+            "StrikeOut: Patch statement (clear)",
+            "",
+            enable_for_vd, 
+            FO_ACTION_ACTIVATE([this]) {
+                this->patchstmt_queue.qclear();
+                return 0;
+            }
         );
 
         // Reset all deleted statements
@@ -83,15 +116,14 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             AMAHF_HXE_POPUP,
             ACTION_NAME_DELSTMTS,
             "StrikeOut: Reset all deleted statements",
-            "", FO_ACTION_UPDATE([],
-                auto vu = get_widget_vdui(widget);
-                return vu == nullptr ? AST_DISABLE_FOR_WIDGET : AST_ENABLE;
-            ), FO_ACTION_ACTIVATE([this],
+            "",
+            enable_for_expr,
+            FO_ACTION_ACTIVATE([this]) {
                 vdui_t &vu = *get_widget_vdui(ctx->widget);
                 this->do_reset_stmts(vu);
                 vu.refresh_ctext();
                 return 1;
-            )
+           }
         );
 
 
@@ -103,9 +135,9 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             "Ctrl-Shift-Del",
             FO_ACTION_UPDATE([],
                 return get_widget_type(widget) == BWN_DISASM ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
-            ), FO_ACTION_ACTIVATE([this],
+            ), FO_ACTION_ACTIVATE([this]) {
                 return this->do_patch_code(ctx->widget);
-            )
+            }
         );
 
         hook_event_listener(HT_UI, this);
@@ -180,27 +212,15 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         return stmt_ea;
     }
 
-    ea_t do_patch_stmt(vdui_t& vu, bool fast=false)
+    void do_flush_patch_stmt(vdui_t& vu)
     {
-        auto cfunc = vu.cfunc;
-        auto item = vu.item.it;
-
-        hexrays_ctreeparent_visitor_t* helper = nullptr;
-        const citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item, fast ? &helper : nullptr);
-
-        if (stmt_item == nullptr)
-            return BADADDR;
-
-        static char noops[32] = { 0 };
-        if (!noops[0])
-            memset(noops, 0x90, sizeof(noops));
-
         // Walk the tree just to get citem_t* from actual saved EAs
-        struct collect_eas_t : public ctree_visitor_t
+        struct collect_eas_t : public hexrays_ctreeparent_visitor_t
         {
             std::map<ea_t, int> eas;
+            bool do_remember = false;
 
-            collect_eas_t() : ctree_visitor_t(CV_PARENTS) { }
+            void clear() { eas.clear(); }
 
             void remember(ea_t ea)
             {
@@ -217,19 +237,41 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
             int idaapi visit_insn(cinsn_t* ins) override
             {
-                remember(ins->ea);
+                if (do_remember)
+                    remember(ins->ea);
+                hexrays_ctreeparent_visitor_t::visit_insn(ins);
                 return 0;
             }
 
             int idaapi visit_expr(cexpr_t* expr)
             {
-                remember(expr->ea);
+                if (do_remember)
+                    remember(expr->ea);
+                hexrays_ctreeparent_visitor_t::visit_expr(expr);
                 return 0;
             }
         } ti;
 
-        ti.apply_to((citem_t*)stmt_item, nullptr);
-        for (auto& kv : ti.eas)//=eas.begin(); p != eas.end(); ++p)
+        auto cfunc = vu.cfunc;
+        ti.do_remember = false;
+        ti.apply_to(&cfunc->body, nullptr);
+
+        static char noops[32] = { 0 };
+        if (!noops[0])
+            memset(noops, 0x90, sizeof(noops));
+
+        // Collect all children
+        ti.do_remember = true;
+        for (auto ea : patchstmt_queue)
+        {
+            auto citem = ti.by_ea(ea);
+            if (citem == nullptr)
+                continue;
+
+            ti.apply_to((citem_t*)citem, nullptr);
+        }
+
+        for (auto& kv : ti.eas)
         {
             if (kv.second == 0)
                 continue;
@@ -237,7 +279,22 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             patch_bytes(kv.first, noops, kv.second);
             msg("Patching %a with %d byte(s)...\n", kv.first, kv.second);
         }
+        patchstmt_queue.clear();
+    }
 
+    ea_t do_patch_stmt(vdui_t& vu)
+    {
+        auto cfunc = vu.cfunc;
+        auto item = vu.item.it;
+
+        hexrays_ctreeparent_visitor_t _h, *helper = &_h;
+        const citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item, &helper);
+
+        if (stmt_item == nullptr)
+            return BADADDR;
+
+        patchstmt_queue.push_back(stmt_item->ea);
+        msg("queued: %a\n", stmt_item->ea);
         return BADADDR;
     }
 
