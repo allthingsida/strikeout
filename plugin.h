@@ -5,31 +5,16 @@
 #include <hexrays.hpp>
 #include <kernwin.hpp>
 #pragma warning(pop)
+#include <idax/xpro.hpp>
+#include <idax/xkernwin.hpp>
 
-#define STORE_NODE_NAME          "$ hexrays strikeout-plugin"
+#define STORE_NODE_NAME                "$ hexrays strikeout-plugin"
 
-#define ACTION_NAME_DELSTMT      "hexrays-strikeout-delstmt"
-#define ACTION_NAME_PATCHSTMT    "hexrays-strikeout-patchstmt"
-#define ACTION_NAME_DELSTMTS     "hexrays-strikeout-reset-delstmts"
-#define ACTION_NAME_PATCHCODE    "hexrays-strikeout-patchcode"
+#define ACTION_NAME_DELSTMT            "hexrays-strikeout-delstmt"
+#define ACTION_NAME_PATCHSTMT          "hexrays-strikeout-patchstmt"
+#define ACTION_NAME_PATCHSTMT_FLUSH    "hexrays-strikeout-patchstmt-flush"
+#define ACTION_NAME_PATCHSTMT_CLEAR    "hexrays-strikeout-patchstmt-clear"
+#define ACTION_NAME_DELSTMTS           "hexrays-strikeout-reset-delstmts"
+#define ACTION_NAME_DEL2PATCH          "hexrays-strikeout-del2patch"
+#define ACTION_NAME_PATCHCODE          "hexrays-strikeout-patchcode"
 
-//-------------------------------------------------------------------------
-struct strikeout_plg_t;
-struct base_ah_t : public action_handler_t
-{
-    strikeout_plg_t* plugmod;
-    base_ah_t(strikeout_plg_t* _plugmod = nullptr) : plugmod(_plugmod) {}
-};
-
-#define DECL_ACTION(name) \
-    struct name ## _ah_t : public base_ah_t \
-    { \
-        using base_ah_t::base_ah_t; \
-        virtual int idaapi activate(action_activation_ctx_t* ctx) override; \
-        static action_state_t get_state(TWidget *); \
-                                                      \
-        action_state_t idaapi update(action_update_ctx_t* ctx) override \
-        { \
-            return get_state(ctx->widget); \
-        } \
-    }
