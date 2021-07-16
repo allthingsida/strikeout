@@ -26,7 +26,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
     {
         install_hexrays_callback(hr_callback, this);
 
-        init_ui();
+        setup_ui();
     }
 
     ssize_t idaapi on_event(ssize_t code, va_list va) override
@@ -37,7 +37,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         return 0;
     }
 
-    void init_ui()
+    void setup_ui()
     {
         auto enable_for_expr = FO_ACTION_UPDATE([],
             auto vu = get_widget_vdui(widget);
