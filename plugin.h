@@ -15,5 +15,6 @@
 #define ACTION_NAME_PATCHSTMT_FLUSH    "hexrays-strikeout-patchstmt-flush"
 #define ACTION_NAME_PATCHSTMT_CLEAR    "hexrays-strikeout-patchstmt-clear"
 #define ACTION_NAME_DELSTMTS           "hexrays-strikeout-reset-delstmts"
+#define ACTION_NAME_DEL2PATCH          "hexrays-strikeout-del2patch"
 #define ACTION_NAME_PATCHCODE          "hexrays-strikeout-patchcode"
 

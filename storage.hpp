@@ -12,7 +12,7 @@ class eanodes_t
 
 public:
     eanodes_t(const char *nodename, bool use_relative=true): nodename(nodename), use_relative(use_relative) { load(); }
-    const easet_t& nodes() { return eas; }
+    easet_t& nodes() { return eas; }
 
     void dump(const char* banner = nullptr)
     {
