@@ -268,7 +268,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         auto cfunc = vu.cfunc;
         auto item = vu.item.i;
 
-        hexrays_ctreeparent_visitor_t _h, *helper = &_h;
+        hexrays_ctreeparent_visitor_t *helper = nullptr;
         const citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item, use_helper ? &helper : nullptr);
         if (stmt_item == nullptr)
             return BADADDR;
@@ -285,6 +285,8 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             cfunc->verify(ALLOW_UNUSED_LABELS, true);
 #endif
         }
+
+        delete helper;
 
         return stmt_ea;
     }
