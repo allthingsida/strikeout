@@ -225,7 +225,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
         ea_t start_ea, end_ea;
         start_ea = items[1].ea;
-        end_ea   = items[0].ea + items[0].size();
+        end_ea   = items[0].ea + ea_t(items[0].size());
         
         auto old_auto = enable_auto(false);
 

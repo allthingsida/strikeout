@@ -72,7 +72,7 @@ struct codeitem_t
         patch_bytes(dst_ea, bytes.begin(), bytes.size());
         set_cmt(dst_ea, cmt.c_str(), false);
         set_cmt(dst_ea, rep_cmt.c_str(), true);
-        dst_ea += bytes.size();
+        dst_ea += ea_t(bytes.size());
         return dst_ea;
     }
 };
