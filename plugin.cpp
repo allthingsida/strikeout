@@ -221,7 +221,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         }
 
         if (items[0] == items[1])
-            return true;
+            return 0;
 
         ea_t start_ea, end_ea;
         start_ea = items[1].ea;
