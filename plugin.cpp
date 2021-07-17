@@ -50,6 +50,10 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             return vu == nullptr ? AST_DISABLE_FOR_WIDGET : AST_ENABLE;
         );
 
+        auto enable_for_disasm = FO_ACTION_UPDATE([],
+            return get_widget_type(widget) == BWN_DISASM ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
+        );
+
         am.set_popup_path("StrikeOut/");
 
         // Delete statement
@@ -76,29 +80,35 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_PATCHCODE,
             "Patch disassembly code",
             "Ctrl-Shift-Del",
-            FO_ACTION_UPDATE([],
-                return get_widget_type(widget) == BWN_DISASM ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
-            ), FO_ACTION_ACTIVATE([this]) {
+            enable_for_disasm,
+            FO_ACTION_ACTIVATE([this]) {
                 return this->do_patch_disasm_code(ctx->widget);
             }
         );
 
-        // Transfer hidden statements as a patch
+        // Move line: up
         am.add_action(
-            AMAHF_HXE_POPUP | AMAHF_IDA_POPUP,
-            ACTION_NAME_DEL2PATCH,
-            "Transfer hidden statements for current function to patch queue",
-            "Alt-Shift-Ins",
-            FO_ACTION_UPDATE([],
-                auto t = get_widget_type(widget);
-                return (t == BWN_DISASM || t == BWN_PSEUDOCODE) ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
-            ), FO_ACTION_ACTIVATE([this]) {
-                this->do_transfer_to_patch_queue(ctx);
-                vdui_t *vu = get_widget_vdui(ctx->widget);
-                if (vu != nullptr)
-                    vu->refresh_ctext();
-                return 1;
-        });
+            AMAHF_IDA_POPUP,
+            ACTION_NAME_DISASM_LINEUP,
+            "Move line up",
+            "Alt-Shift-Up",
+            enable_for_disasm,
+            FO_ACTION_ACTIVATE([this]) {
+                return this->do_move_disasm_line(ctx->cur_ea, true);
+            }
+        );
+
+        // Move line: down
+        am.add_action(
+            AMAHF_IDA_POPUP,
+            ACTION_NAME_DISASM_LINEDOWN,
+            "Move line down",
+            "Alt-Shift-Down",
+            enable_for_disasm,
+            FO_ACTION_ACTIVATE([this]) {
+                return this->do_move_disasm_line(ctx->cur_ea, false);
+            }
+        );
 
         // Flush the statement patcher
         am.add_action(
@@ -114,7 +124,25 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             }
         );
 
+        // ================================ Clear =============================
         am.set_popup_path("StrikeOut/Clear/");
+
+        // Transfer hidden statements as a patch
+        am.add_action(
+            AMAHF_HXE_POPUP | AMAHF_IDA_POPUP,
+            ACTION_NAME_DEL2PATCH,
+            "Reset deleted statements for current function",
+            "Alt-Shift-Ins",
+            FO_ACTION_UPDATE([],
+                auto t = get_widget_type(widget);
+                return (t == BWN_DISASM || t == BWN_PSEUDOCODE) ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
+            ), FO_ACTION_ACTIVATE([this]) {
+                this->do_transfer_to_patch_queue(ctx);
+                vdui_t *vu = get_widget_vdui(ctx->widget);
+                if (vu != nullptr)
+                    vu->refresh_ctext();
+                return 1;
+        });
 
         // Clear the queue patch statements
         am.add_action(
@@ -177,6 +205,50 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         cfunc->remove_unused_labels();
     }
 
+    // Move disassembly lines
+    int do_move_disasm_line(ea_t ea, bool up)
+    {
+        // Sort addresses
+        codeitem_t items[2];
+
+        items[0] = up ? ea : next_head(ea, BADADDR);
+        items[1] = up ? prev_head(ea, 0) : ea;
+
+        if (!items[0] || !items[1])
+        {
+            msg("Cannot swap at %a\n", ea);
+            return 0;
+        }
+
+        if (items[0] == items[1])
+            return true;
+
+        ea_t start_ea, end_ea;
+        start_ea = items[1].ea;
+        end_ea   = items[0].ea + items[0].size();
+        
+        auto old_auto = enable_auto(false);
+
+        msg("Swapping....%a and %a\n", start_ea, end_ea);
+
+        del_items(start_ea, 0, end_ea - start_ea);
+
+        // Paste elements
+        end_ea = items[0].paste(start_ea);
+        ea     = items[1].paste(end_ea);
+
+        // Re-create instructions
+        create_insn(start_ea);
+
+        enable_auto(old_auto);
+        auto_wait();
+
+        ea_t navto = up ? start_ea : end_ea;
+        jumpto(navto);
+
+        return 1;
+    }
+
     int do_patch_disasm_code(TWidget* widget)
     {
         ea_t ea2;
@@ -196,7 +268,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         auto cfunc = vu.cfunc;
         auto item = vu.item.i;
 
-        hexrays_ctreeparent_visitor_t* helper = nullptr;
+        hexrays_ctreeparent_visitor_t _h, *helper = &_h;
         const citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item, use_helper ? &helper : nullptr);
         if (stmt_item == nullptr)
             return BADADDR;
@@ -213,9 +285,6 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             cfunc->verify(ALLOW_UNUSED_LABELS, true);
 #endif
         }
-
-        if (helper != nullptr)
-            delete helper;
 
         return stmt_ea;
     }
@@ -322,7 +391,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             }
         }
         marked.save();
-        msg("Transferred %u items. Now refresh when ready to capture disassembly items.\n", (uint)patchstmt_queue.size());
+        msg("Removed %u hidden statement(s) and moved to patch queue. Refresh to pseudo-code to take effect.\n", (uint)patchstmt_queue.size());
     }
 };
 
