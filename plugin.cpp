@@ -9,6 +9,7 @@ When StrikeOut is active, you will see context menu items in the decompiler wind
 #include "plugin.h"
 #include "storage.hpp"
 #include "utils.hpp"
+#include <memory>
 
 static ssize_t idaapi hr_callback(
     void* ud, 
@@ -39,21 +40,6 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
     void setup_ui()
     {
-        auto enable_for_expr = FO_ACTION_UPDATE([],
-            auto vu = get_widget_vdui(widget);
-            return (vu == nullptr) ? AST_DISABLE_FOR_WIDGET
-                                   : vu->item.citype != VDI_EXPR ? AST_DISABLE : AST_ENABLE;
-        );
-
-        auto enable_for_vd = FO_ACTION_UPDATE([],
-            auto vu = get_widget_vdui(widget);
-            return vu == nullptr ? AST_DISABLE_FOR_WIDGET : AST_ENABLE;
-        );
-
-        auto enable_for_disasm = FO_ACTION_UPDATE([],
-            return get_widget_type(widget) == BWN_DISASM ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
-        );
-
         am.set_popup_path("StrikeOut/");
 
         // Delete statement
@@ -62,7 +48,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DELSTMT,
             "Delete statement",
             "Del",     
-            enable_for_expr,
+            am.default_enable_for_vd_expr,
             FO_ACTION_ACTIVATE([this]) {
                 vdui_t &vu   = *get_widget_vdui(ctx->widget);
                 ea_t stmt_ea = this->do_del_stmt(vu);
@@ -76,11 +62,11 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
         // Patch code
         am.add_action(
-            AMAHF_IDA_POPUP,
+            AMAHF_HXE_POPUP | AMAHF_IDA_POPUP,
             ACTION_NAME_PATCHCODE,
             "Patch disassembly code",
             "Ctrl-Shift-Del",
-            enable_for_disasm,
+            am.default_enable_for_vd_disasm,
             FO_ACTION_ACTIVATE([this]) {
                 return this->do_patch_disasm_code(ctx->widget);
             }
@@ -92,7 +78,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DISASM_LINEUP,
             "Move line up",
             "Alt-Shift-Up",
-            enable_for_disasm,
+            am.default_enable_for_disasm,
             FO_ACTION_ACTIVATE([this]) {
                 return this->do_move_disasm_line(ctx->cur_ea, true);
             }
@@ -104,7 +90,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DISASM_LINEDOWN,
             "Move line down",
             "Alt-Shift-Down",
-            enable_for_disasm,
+            am.default_enable_for_disasm,
             FO_ACTION_ACTIVATE([this]) {
                 return this->do_move_disasm_line(ctx->cur_ea, false);
             }
@@ -116,7 +102,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_PATCHSTMT_FLUSH,
             "Apply patch statements queue",
             "Alt-Shift-End",
-            enable_for_vd,
+            am.default_enable_for_vd,
             FO_ACTION_ACTIVATE([this]) {
                 vdui_t& vu = *get_widget_vdui(ctx->widget);
                 this->do_flush_patch_stmt(vu);
@@ -133,10 +119,8 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DEL2PATCH,
             "Reset deleted statements for current function",
             "Alt-Shift-Ins",
-            FO_ACTION_UPDATE([],
-                auto t = get_widget_type(widget);
-                return (t == BWN_DISASM || t == BWN_PSEUDOCODE) ? AST_ENABLE_FOR_WIDGET : AST_DISABLE_FOR_WIDGET;
-            ), FO_ACTION_ACTIVATE([this]) {
+            am.default_enable_for_vd_disasm,
+            FO_ACTION_ACTIVATE([this]) {
                 this->do_transfer_to_patch_queue(ctx);
                 vdui_t *vu = get_widget_vdui(ctx->widget);
                 if (vu != nullptr)
@@ -150,7 +134,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_PATCHSTMT_CLEAR,
             "Clear patch statement queue",
             "Alt-Shift-Del",
-            enable_for_vd, 
+            am.default_enable_for_vd_disasm, 
             FO_ACTION_ACTIVATE([this]) {
                 this->patchstmt_queue.qclear();
                 return 0;
@@ -163,7 +147,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DELSTMTS,
             "Clear all deleted statements",
             "",
-            enable_for_vd,
+            am.default_enable_for_vd,
             FO_ACTION_ACTIVATE([this]) {
                 vdui_t &vu = *get_widget_vdui(ctx->widget);
                 this->do_reset_stmts(vu);
@@ -192,6 +176,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
         cinsnptrvec_t marked_insn;
         hexrays_collect_cinsn_from_ea helper(cfunc, &marked, &marked_insn);
+
 
         hexrays_keep_lca_cinsns(cfunc, &helper, marked_insn);
 
@@ -254,7 +239,15 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         ea_t ea2;
         ea_t ea1 = get_selection_range(widget, &ea2, BWN_DISASM);
         if (ea1 == BADADDR)
-            return 0;
+        {
+            auto vu = get_widget_vdui(widget);
+            if (vu == nullptr || vu->item.citype != VDI_EXPR)
+                return 0;
+
+            ea1 = vu->item.get_ea();
+            if (ea1 == BADADDR || (ea2 = next_head(ea1, BADADDR) == BADADDR))
+                return 0;
+        }
 
         msg("patched selection: %a .. %a\n", ea1, ea2);
         for (; ea1 < ea2; ++ea1)
@@ -268,7 +261,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         auto cfunc = vu.cfunc;
         auto item = vu.item.i;
 
-        hexrays_ctreeparent_visitor_t *helper = nullptr;
+        hexrays_ctreeparent_visitor_ptr_t helper;
         const citem_t* stmt_item = hexrays_get_stmt_insn(cfunc, item, use_helper ? &helper : nullptr);
         if (stmt_item == nullptr)
             return BADADDR;
@@ -277,7 +270,12 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 
         cblock_t* cblock;
         cblock_t::iterator pos;
-        if (hexrays_get_stmt_block_pos(cfunc, stmt_item, &cblock, &pos, use_helper ? helper : nullptr))
+        if (hexrays_get_stmt_block_pos(
+                cfunc, 
+                stmt_item, 
+                &cblock, 
+                &pos, 
+                use_helper ? helper.get() : nullptr))
         {
             cblock->erase(pos);
             cfunc->remove_unused_labels();
@@ -285,8 +283,6 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             cfunc->verify(ALLOW_UNUSED_LABELS, true);
 #endif
         }
-
-        delete helper;
 
         return stmt_ea;
     }
