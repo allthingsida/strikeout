@@ -13,9 +13,9 @@ This is a useful scenario when you are dealing with lots of junk code or code th
 
 # Building
 
-StrikeOut is uses [idax](https://github.com/0xeb/idax) and is built using [ida-cmake](https://github.com/0xeb/ida-cmake).
+StrikeOut uses [idax](https://github.com/0xeb/idax) and is built using [ida-cmake](https://github.com/0xeb/ida-cmake).
 
-There are release pre-built for MS Windows.
+If you don't want to build from sources, then there are release pre-built for MS Windows.
 
 # Use cases
 
