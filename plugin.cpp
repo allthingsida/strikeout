@@ -48,7 +48,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DELSTMT,
             "Delete statement",
             "Del",     
-            am.default_enable_for_vd_expr,
+            hexrays_default_enable_for_vd_expr,
             FO_ACTION_ACTIVATE([this]) {
                 vdui_t &vu   = *get_widget_vdui(ctx->widget);
                 ea_t stmt_ea = this->do_del_stmt(vu);
@@ -102,7 +102,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_PATCHSTMT_FLUSH,
             "Apply patch statements queue",
             "Alt-Shift-End",
-            am.default_enable_for_vd,
+            hexrays_default_enable_for_vd,
             FO_ACTION_ACTIVATE([this]) {
                 vdui_t& vu = *get_widget_vdui(ctx->widget);
                 this->do_flush_patch_stmt(vu);
@@ -147,7 +147,7 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
             ACTION_NAME_DELSTMTS,
             "Clear all deleted statements",
             "",
-            am.default_enable_for_vd,
+            hexrays_default_enable_for_vd,
             FO_ACTION_ACTIVATE([this]) {
                 vdui_t &vu = *get_widget_vdui(ctx->widget);
                 this->do_reset_stmts(vu);
