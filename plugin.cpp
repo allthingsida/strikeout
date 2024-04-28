@@ -1,5 +1,5 @@
 /*
-StrikeOut: a plugin that allows you to delete Ctree statements and patch the disassembly code.
+StrikeOut: a plugin that allows you to delete ctree statements and patch the disassembly code.
 
 When StrikeOut is active, you will see context menu items in the decompiler window.
 
@@ -10,11 +10,6 @@ When StrikeOut is active, you will see context menu items in the decompiler wind
 #include "storage.hpp"
 #include "utils.hpp"
 #include <memory>
-
-static ssize_t idaapi hr_callback(
-    void* ud, 
-    hexrays_event_t event, 
-    va_list va);
 
 //-------------------------------------------------------------------------
 struct strikeout_plg_t : public plugmod_t, event_listener_t
@@ -28,6 +23,29 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         install_hexrays_callback(hr_callback, this);
 
         setup_ui();
+    }
+
+    static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
+    {
+        strikeout_plg_t* plugmod = (strikeout_plg_t*)ud;
+        switch (event)
+        {
+            case hxe_populating_popup:
+                plugmod->am.on_hxe_populating_popup(va);
+                break;
+
+            case hxe_maturity:
+            {
+                auto cfunc = va_arg(va, cfunc_t*);
+
+                ctree_maturity_t new_maturity = va_argi(va, ctree_maturity_t);
+                if (new_maturity == CMAT_FINAL)
+                    plugmod->transform_ctree(cfunc);
+
+                break;
+            }
+        }
+        return 0;
     }
 
     ssize_t idaapi on_event(ssize_t code, va_list va) override
@@ -394,43 +412,11 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
 };
 
 //--------------------------------------------------------------------------
-// This decompiler callback handles various hexrays events.
-static ssize_t idaapi hr_callback(void* ud, hexrays_event_t event, va_list va)
-{
-    strikeout_plg_t* plugmod = (strikeout_plg_t*)ud;
-    switch (event)
-    {
-        case hxe_populating_popup:
-            plugmod->am.on_hxe_populating_popup(va);
-            break;
-
-        case hxe_maturity:
-        {
-            auto cfunc = va_arg(va, cfunc_t*);
-
-            ctree_maturity_t new_maturity = va_argi(va, ctree_maturity_t);
-            if (new_maturity == CMAT_FINAL)
-                plugmod->transform_ctree(cfunc);
-
-            break;
-        }
-    }
-    return 0;
-}
-
-//--------------------------------------------------------------------------
-// Initialize the plugin.
-static plugmod_t* idaapi init()
-{
-    return init_hexrays_plugin() ? new strikeout_plg_t() : nullptr;
-}
-
-//--------------------------------------------------------------------------
 plugin_t PLUGIN =
 {
     IDP_INTERFACE_VERSION,
     PLUGIN_HIDE | PLUGIN_MULTI,
-    init,
+    []()->plugmod_t* { return init_hexrays_plugin() ? new strikeout_plg_t() : nullptr; }, // initialize
     nullptr,
     nullptr,
     "StrikeOut: Hex-Rays statements editor",

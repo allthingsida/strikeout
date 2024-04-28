@@ -1,12 +1,10 @@
 #pragma once
 
-#pragma warning(push)
-#pragma warning(disable: 4267 4083 4244)
 #include <auto.hpp>
 #include <hexrays.hpp>
 #include <bytes.hpp>
 #include <kernwin.hpp>
-#pragma warning(pop)
+
 #include <idax/xpro.hpp>
 #include <idax/xkernwin.hpp>
 #include <idax/xhexrays.hpp>
