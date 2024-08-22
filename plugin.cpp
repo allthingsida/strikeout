@@ -195,7 +195,6 @@ struct strikeout_plg_t : public plugmod_t, event_listener_t
         cinsnptrvec_t marked_insn;
         hexrays_collect_cinsn_from_ea helper(cfunc, &marked, &marked_insn);
 
-
         hexrays_keep_lca_cinsns(cfunc, &helper, marked_insn);
 
         for (auto stmt_item : marked_insn)

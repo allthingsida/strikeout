@@ -6,7 +6,7 @@
 //-------------------------------------------------------------------------
 class eanodes_t
 {
-    easet_t eas; // Cached copy of inverted if-statement addresses
+    easet_t eas;
     qstring nodename;
     bool use_relative;
 
